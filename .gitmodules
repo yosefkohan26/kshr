@@ -1,0 +1,10 @@
+[submodule "ghostty"]
+	path = ghostty
+	url = https://github.com/yosefkohan26/ghostty.git
+	branch = main
+[submodule "homebrew-kshr"]
+	path = homebrew-kshr
+	url = https://github.com/yosefkohan26/homebrew-kshr.git
+[submodule "vendor/bonsplit"]
+	path = vendor/bonsplit
+	url = https://github.com/yosefkohan26/bonsplit.git

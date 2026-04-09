@@ -1,0 +1,4 @@
+interface:
+  display_name: "kshr Release"
+  short_description: "Prepare and publish kshr releases from version bump to tag."
+  default_prompt: "Use this skill to run the kshr release workflow: choose version, generate user-facing changelog updates, bump versions, open and monitor release PRs, merge, tag, and verify release artifacts."
