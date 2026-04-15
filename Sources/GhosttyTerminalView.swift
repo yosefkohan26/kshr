@@ -5050,7 +5050,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // when we don't have usable bounds (e.g. detached/off-window transitions).
         superview?.layoutSubtreeIfNeeded()
         layoutSubtreeIfNeeded()
-        updateSurfaceSize()
+        let sizeDidChange = updateSurfaceSize()
+        if sizeDidChange, let s = terminalSurface?.surface {
+            ghostty_surface_refresh(s)
+        }
         applySurfaceBackground()
         applySurfaceColorScheme(force: true)
         GhosttyApp.shared.synchronizeThemeWithAppearance(
