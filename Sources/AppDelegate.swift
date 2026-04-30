@@ -3109,9 +3109,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func prepareStartupSessionSnapshotIfNeeded() {
         guard !didPrepareStartupSessionSnapshot else { return }
         didPrepareStartupSessionSnapshot = true
-        guard SessionRestorePolicy.shouldAttemptRestore() else { return }
+        let policyAllows = SessionRestorePolicy.shouldAttemptRestore()
+        let argsTail = CommandLine.arguments.dropFirst().joined(separator: " ")
+        NSLog("[kshr.session] prepareStartupSnapshot policyAllows=\(policyAllows) args=[\(argsTail)]")
+        guard policyAllows else { return }
         Self.removeLegacyPersistedWindowGeometry()
-        startupSessionSnapshot = SessionPersistenceStore.load()
+        let loaded = SessionPersistenceStore.load()
+        startupSessionSnapshot = loaded
+        let workspaceCount = loaded?.windows.first?.tabManager.workspaces.count ?? 0
+        NSLog(
+            "[kshr.session] loadedSnapshot=\(loaded != nil ? 1 : 0) " +
+            "windows=\(loaded?.windows.count ?? 0) firstWindowWorkspaces=\(workspaceCount) " +
+            "filePath=\(SessionPersistenceStore.defaultSnapshotFileURL()?.path ?? "nil")"
+        )
     }
 
     private func persistedWindowGeometry(
@@ -3197,10 +3207,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func attemptStartupSessionRestoreIfNeeded(primaryWindow: NSWindow) {
-        guard !didAttemptStartupSessionRestore else { return }
+        if didAttemptStartupSessionRestore {
+            NSLog("[kshr.session] attemptRestore.skip reason=alreadyAttempted")
+            return
+        }
         didAttemptStartupSessionRestore = true
-        guard !didHandleExplicitOpenIntentAtStartup else { return }
-        guard let primaryContext = contextForMainTerminalWindow(primaryWindow) else { return }
+        if didHandleExplicitOpenIntentAtStartup {
+            NSLog("[kshr.session] attemptRestore.skip reason=explicitOpenIntent")
+            return
+        }
+        guard let primaryContext = contextForMainTerminalWindow(primaryWindow) else {
+            NSLog("[kshr.session] attemptRestore.skip reason=noWindowContext")
+            return
+        }
+        let snapshotWorkspaces = startupSessionSnapshot?.windows.first?.tabManager.workspaces.count ?? 0
+        NSLog(
+            "[kshr.session] attemptRestore.proceed snapshotPresent=\(startupSessionSnapshot != nil ? 1 : 0) " +
+            "snapshotWindows=\(startupSessionSnapshot?.windows.count ?? 0) " +
+            "primaryWindowWorkspaces=\(snapshotWorkspaces)"
+        )
 
         let startupSnapshot = startupSessionSnapshot
         let primaryWindowSnapshot = startupSnapshot?.windows.first
@@ -5969,6 +5994,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func prepareForExplicitOpenIntentAtStartup() {
+        NSLog("[kshr.session] explicitOpenIntent.set didAttemptRestore=\(didAttemptStartupSessionRestore ? 1 : 0)")
         didHandleExplicitOpenIntentAtStartup = true
         if !didAttemptStartupSessionRestore {
             startupSessionSnapshot = nil

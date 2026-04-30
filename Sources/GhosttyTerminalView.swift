@@ -5092,7 +5092,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             layer?.contentsScale = window.backingScaleFactor
             CATransaction.commit()
         }
-        updateSurfaceSize()
+        let sizeDidChange = updateSurfaceSize()
+        // Notifications/display reconfiguration can fire backing changes on
+        // unfocused surfaces, and Ghostty only auto-restarts its vsync link on
+        // display-id changes while focused. Without an explicit refresh the
+        // renderer can sit on a blank/stale frame.
+        if sizeDidChange, let s = terminalSurface?.surface {
+            ghostty_surface_refresh(s)
+        }
         invalidateTextInputCoordinates()
     }
 
@@ -7146,6 +7153,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
            displayID != 0 {
             ghostty_surface_set_display_id(surface, displayID)
         }
+
+        // Ghostty only auto-restarts its vsync link on display-id changes while
+        // the surface is focused. Screen reconfiguration triggered by system UI
+        // (e.g. notification banners on macOS Tahoe) can fire on unfocused
+        // surfaces and leave the renderer stuck until a later focus change.
+        ghostty_surface_refresh(surface)
 
         DispatchQueue.main.async { [weak self] in
             self?.viewDidChangeBackingProperties()
