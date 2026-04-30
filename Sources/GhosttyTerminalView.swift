@@ -7044,7 +7044,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func mouseDragged(with event: NSEvent) {
         guard let surface = surface else { return }
-        let point = convert(event.locationInWindow, from: nil)
+        var point = convert(event.locationInWindow, from: nil)
+        // Clamp to view bounds. AppKit keeps delivering mouseDragged while the
+        // button is held, even when the cursor leaves the view; libghostty maps
+        // out-of-range y to scrollback start/end, which selects everything above
+        // or below the intended range.
+        point.x = max(0, min(point.x, bounds.width))
+        point.y = max(0, min(point.y, bounds.height))
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
     }
 
