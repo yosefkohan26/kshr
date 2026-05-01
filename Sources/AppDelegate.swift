@@ -2935,27 +2935,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// Send two SIGINTs (~200ms apart) to every PID tracked as an agent
-    /// (Claude Code, etc.) across all main-window tab managers. Claude Code
-    /// treats one SIGINT as "interrupt current operation" and only exits on
-    /// the second; on exit it prints "Resume this session with: claude --resume <id>".
-    /// Block the main thread briefly afterward so that resume hint lands in
-    /// the PTY before scrollback is saved and the PTY is torn down.
+    /// (Claude Code, etc.) across all main-window tab managers, then poll
+    /// for the agent to exit before returning. Claude Code treats one SIGINT
+    /// as "interrupt current operation" and only exits on the second; on exit
+    /// it prints "Resume this session with: claude --resume <id>".
     private func gracefullySignalKnownAgentsBeforeTerminate() {
-        var pids: Set<pid_t> = []
+        var pidsByKey: [(pid_t, String)] = []
+        var allPids: Set<pid_t> = []
         for context in mainWindowContexts.values {
             for workspace in context.tabManager.tabs {
-                for pid in workspace.agentPIDs.values where pid > 0 {
-                    pids.insert(pid)
+                for (key, pid) in workspace.agentPIDs where pid > 0 {
+                    pidsByKey.append((pid, key))
+                    allPids.insert(pid)
                 }
             }
         }
-        guard !pids.isEmpty else { return }
-        for pid in pids { kill(pid, SIGINT) }
-        usleep(200_000) // first SIGINT lands as "interrupt"
-        for pid in pids { kill(pid, SIGINT) }
-        // 1.2s gives Claude Code time to flush the resume hint and exit cleanly.
-        // macOS allows several seconds in applicationWillTerminate before SIGKILL.
-        usleep(1_200_000)
+        Self.appendQuitDebug("agents-found count=\(allPids.count) entries=\(pidsByKey.map { "\($0.0):\($0.1)" }.joined(separator: ","))")
+        guard !allPids.isEmpty else { return }
+
+        for pid in allPids { kill(pid, SIGINT) }
+        Self.appendQuitDebug("sigint-1 sent")
+        usleep(250_000)
+        for pid in allPids { kill(pid, SIGINT) }
+        Self.appendQuitDebug("sigint-2 sent")
+
+        // Poll up to 3s for the agents to actually exit. waitpid won't work
+        // (we're not the parent), so probe with kill(pid, 0).
+        let deadline = Date().addingTimeInterval(3.0)
+        while Date() < deadline {
+            let alive = allPids.filter { kill($0, 0) == 0 }
+            if alive.isEmpty {
+                Self.appendQuitDebug("all-agents-exited")
+                // Brief grace period so libghostty/Metal flush the final PTY output.
+                usleep(400_000)
+                return
+            }
+            usleep(100_000)
+        }
+        let stillAlive = allPids.filter { kill($0, 0) == 0 }
+        Self.appendQuitDebug("timeout still-alive=\(stillAlive.count)")
+        usleep(400_000)
+    }
+
+    private static func appendQuitDebug(_ msg: String) {
+        let line = "\(Date().timeIntervalSince1970) [kshr.quit] \(msg)\n"
+        if let data = line.data(using: .utf8),
+           let handle = try? FileHandle(forWritingTo: URL(fileURLWithPath: "/tmp/kshr-quit-debug.log")) {
+            handle.seekToEndOfFile()
+            try? handle.write(contentsOf: data)
+            try? handle.close()
+        } else if let data = line.data(using: .utf8) {
+            try? data.write(to: URL(fileURLWithPath: "/tmp/kshr-quit-debug.log"))
+        }
     }
 
     func applicationWillResignActive(_ notification: Notification) {
