@@ -6720,119 +6720,7 @@ struct ContentView: View {
                 }
             )
         )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserBack",
-                title: constant(String(localized: "command.browserBack.title", defaultValue: "Back")),
-                subtitle: browserPanelSubtitle,
-                shortcutHint: "⌘[",
-                keywords: ["browser", "back", "history"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserForward",
-                title: constant(String(localized: "command.browserForward.title", defaultValue: "Forward")),
-                subtitle: browserPanelSubtitle,
-                shortcutHint: "⌘]",
-                keywords: ["browser", "forward", "history"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserReload",
-                title: constant(String(localized: "command.browserReload.title", defaultValue: "Reload Page")),
-                subtitle: browserPanelSubtitle,
-                shortcutHint: "⌘R",
-                keywords: ["browser", "reload", "refresh"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserOpenDefault",
-                title: constant(String(localized: "command.browserOpenDefault.title", defaultValue: "Open Current Page in Default Browser")),
-                subtitle: browserPanelSubtitle,
-                keywords: ["open", "default", "external", "browser"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserFocusAddressBar",
-                title: constant(String(localized: "command.browserFocusAddressBar.title", defaultValue: "Focus Address Bar")),
-                subtitle: browserPanelSubtitle,
-                shortcutHint: "⌘L",
-                keywords: ["browser", "address", "omnibar", "url"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserToggleDevTools",
-                title: constant(String(localized: "command.browserToggleDevTools.title", defaultValue: "Toggle Developer Tools")),
-                subtitle: browserPanelSubtitle,
-                keywords: ["browser", "devtools", "inspector"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserConsole",
-                title: constant(String(localized: "command.browserConsole.title", defaultValue: "Show JavaScript Console")),
-                subtitle: browserPanelSubtitle,
-                keywords: ["browser", "console", "javascript"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserReactGrab",
-                title: constant(String(localized: "command.browserReactGrab.title", defaultValue: "Toggle React Grab")),
-                subtitle: browserPanelSubtitle,
-                keywords: ["browser", "react", "grab", "inspect", "element"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserZoomIn",
-                title: constant(String(localized: "command.browserZoomIn.title", defaultValue: "Zoom In")),
-                subtitle: browserPanelSubtitle,
-                keywords: ["browser", "zoom", "in"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserZoomOut",
-                title: constant(String(localized: "command.browserZoomOut.title", defaultValue: "Zoom Out")),
-                subtitle: browserPanelSubtitle,
-                keywords: ["browser", "zoom", "out"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserZoomReset",
-                title: constant(String(localized: "command.browserZoomReset.title", defaultValue: "Actual Size")),
-                subtitle: browserPanelSubtitle,
-                keywords: ["browser", "zoom", "reset", "actual size"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserClearHistory",
-                title: constant(String(localized: "command.browserClearHistory.title", defaultValue: "Clear Browser History")),
-                subtitle: constant(String(localized: "command.browserClearHistory.subtitle", defaultValue: "Browser")),
-                keywords: ["browser", "history", "clear"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        // palette.browserSplitRight/Down/DuplicateRight hidden in Phase 2 of in-app-browser removal.
+        // All palette.browser* contributions removed in Phase 3b of in-app-browser removal.
 
         for target in TerminalDirectoryOpenTarget.commandPaletteShortcutTargets {
             contributions.append(
@@ -7027,13 +6915,7 @@ struct ContentView: View {
         registry.register(commandId: "palette.newTerminalTab") {
             tabManager.newSurface()
         }
-        registry.register(commandId: "palette.newBrowserTab") {
-            // Let command-palette dismissal complete first so omnibar focus
-            // is not blocked by the palette visibility guard.
-            DispatchQueue.main.async {
-                _ = AppDelegate.shared?.openBrowserAndFocusAddressBar()
-            }
-        }
+        // palette.newBrowserTab registration removed in Phase 3b of in-app-browser removal.
         registry.register(commandId: "palette.closeTab") {
             tabManager.closeCurrentPanelWithConfirmation()
         }
@@ -7058,9 +6940,7 @@ struct ContentView: View {
             }
             window.toggleFullScreen(nil)
         }
-        registry.register(commandId: "palette.reopenClosedBrowserTab") {
-            _ = tabManager.reopenMostRecentlyClosedBrowserPanel()
-        }
+        // palette.reopenClosedBrowserTab registration removed in Phase 3b of in-app-browser removal.
         registry.register(commandId: "palette.toggleSidebar") {
             sidebarState.toggle()
         }
@@ -7223,66 +7103,7 @@ struct ContentView: View {
             }
         }
 
-        registry.register(commandId: "palette.browserBack") {
-            tabManager.focusedBrowserPanel?.goBack()
-        }
-        registry.register(commandId: "palette.browserForward") {
-            tabManager.focusedBrowserPanel?.goForward()
-        }
-        registry.register(commandId: "palette.browserReload") {
-            tabManager.focusedBrowserPanel?.reload()
-        }
-        registry.register(commandId: "palette.browserOpenDefault") {
-            if !openFocusedBrowserInDefaultBrowser() {
-                NSSound.beep()
-            }
-        }
-        registry.register(commandId: "palette.browserFocusAddressBar") {
-            if !focusFocusedBrowserAddressBar() {
-                NSSound.beep()
-            }
-        }
-        registry.register(commandId: "palette.browserToggleDevTools") {
-            if !tabManager.toggleDeveloperToolsFocusedBrowser() {
-                NSSound.beep()
-            }
-        }
-        registry.register(commandId: "palette.browserConsole") {
-            if !tabManager.showJavaScriptConsoleFocusedBrowser() {
-                NSSound.beep()
-            }
-        }
-        registry.register(commandId: "palette.browserReactGrab") {
-            tabManager.toggleReactGrabFocusedBrowser()
-        }
-        registry.register(commandId: "palette.browserZoomIn") {
-            if !tabManager.zoomInFocusedBrowser() {
-                NSSound.beep()
-            }
-        }
-        registry.register(commandId: "palette.browserZoomOut") {
-            if !tabManager.zoomOutFocusedBrowser() {
-                NSSound.beep()
-            }
-        }
-        registry.register(commandId: "palette.browserZoomReset") {
-            if !tabManager.resetZoomFocusedBrowser() {
-                NSSound.beep()
-            }
-        }
-        registry.register(commandId: "palette.browserClearHistory") {
-            BrowserHistoryStore.shared.clearHistory()
-        }
-        registry.register(commandId: "palette.browserSplitRight") {
-            _ = tabManager.createBrowserSplit(direction: .right)
-        }
-        registry.register(commandId: "palette.browserSplitDown") {
-            _ = tabManager.createBrowserSplit(direction: .down)
-        }
-        registry.register(commandId: "palette.browserDuplicateRight") {
-            let url = tabManager.focusedBrowserPanel?.preferredURLStringForOmnibar().flatMap(URL.init(string:))
-            _ = tabManager.createBrowserSplit(direction: .right, url: url)
-        }
+        // All palette.browser* action registrations removed in Phase 3b of in-app-browser removal.
 
         for target in TerminalDirectoryOpenTarget.commandPaletteShortcutTargets {
             registry.register(commandId: target.commandPaletteCommandId) {
@@ -7320,12 +7141,7 @@ struct ContentView: View {
         registry.register(commandId: "palette.terminalSplitDown") {
             tabManager.createSplit(direction: .down)
         }
-        registry.register(commandId: "palette.terminalSplitBrowserRight") {
-            _ = tabManager.createBrowserSplit(direction: .right)
-        }
-        registry.register(commandId: "palette.terminalSplitBrowserDown") {
-            _ = tabManager.createBrowserSplit(direction: .down)
-        }
+        // palette.terminalSplitBrowser* registrations removed in Phase 3b of in-app-browser removal.
         registry.register(commandId: "palette.toggleSplitZoom") {
             if !tabManager.toggleFocusedSplitZoom() {
                 NSSound.beep()
