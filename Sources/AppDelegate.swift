@@ -2918,12 +2918,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillTerminate(_ notification: Notification) {
         isTerminatingApp = true
-        stopSessionAutosaveTimer()
-        // Give agent processes (e.g. Claude Code) a chance to print their
-        // resume hint and exit cleanly BEFORE we save scrollback, so the
-        // "claude --resume <id>" line appears on the next launch.
-        gracefullySignalKnownAgentsBeforeTerminate()
+        // Save FIRST while workspaces are still alive. Window-close handlers
+        // run between applicationShouldTerminate and this callback and can
+        // empty out panels; saving after a multi-second SIGINT/poll wait was
+        // capturing empty state and wiping the persisted snapshot.
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+        stopSessionAutosaveTimer()
+        // Best-effort: signal known agents (Claude Code, etc.) so they exit
+        // cleanly on the next PTY teardown. We can no longer capture their
+        // resume-hint output in scrollback (that ship sailed when we saved
+        // above), but at least their internal state is flushed properly.
+        gracefullySignalKnownAgentsBeforeTerminate()
         TerminalController.shared.stop()
         VSCodeServeWebController.shared.stop()
         BrowserProfileStore.shared.flushPendingSaves()
