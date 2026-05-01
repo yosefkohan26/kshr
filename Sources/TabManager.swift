@@ -3892,20 +3892,27 @@ class TabManager: ObservableObject {
         return newSplit(tabId: tabId, surfaceId: surfaceId, direction: direction, focus: focus)
     }
 
+    /// Phase 1 of the in-app-browser removal: route all "open browser" entry
+    /// points to the system default browser (Arc, etc.) via NSWorkspace. The
+    /// in-app BrowserPanel/WKWebView code remains compiled (deleted in Phase 3)
+    /// but is no longer reachable from these call sites.
+    private func openExternalBrowser(url: URL?) {
+        if let url {
+            NSWorkspace.shared.open(url)
+            return
+        }
+        // No URL: just bring the default browser forward. Open about:blank as
+        // a portable way to launch the registered default-browser app.
+        if let blank = URL(string: "about:blank") {
+            NSWorkspace.shared.open(blank)
+        }
+    }
+
     /// Create a new browser split from the currently focused panel.
     @discardableResult
     func createBrowserSplit(direction: SplitDirection, url: URL? = nil) -> UUID? {
-        guard let selectedTabId,
-              let tab = tabsById[selectedTabId],
-              let focusedPanelId = tab.focusedPanelId else { return nil }
-        tab.clearSplitZoom()
-        return newBrowserSplit(
-            tabId: selectedTabId,
-            fromPanelId: focusedPanelId,
-            orientation: direction.orientation,
-            insertFirst: direction.insertFirst,
-            url: url
-        )
+        openExternalBrowser(url: url)
+        return nil
     }
 
     /// Refresh Bonsplit right-side action button tooltips for all workspaces.
@@ -4205,15 +4212,8 @@ class TabManager: ObservableObject {
         preferredProfileID: UUID? = nil,
         focus: Bool = true
     ) -> UUID? {
-        guard let tab = tabsById[tabId] else { return nil }
-        return tab.newBrowserSplit(
-            from: fromPanelId,
-            orientation: orientation,
-            insertFirst: insertFirst,
-            url: url,
-            preferredProfileID: preferredProfileID,
-            focus: focus
-        )?.id
+        openExternalBrowser(url: url)
+        return nil
     }
 
     /// Create a new browser surface in a pane
@@ -4223,12 +4223,8 @@ class TabManager: ObservableObject {
         url: URL? = nil,
         preferredProfileID: UUID? = nil
     ) -> UUID? {
-        guard let tab = tabsById[tabId] else { return nil }
-        return tab.newBrowserSurface(
-            inPane: paneId,
-            url: url,
-            preferredProfileID: preferredProfileID
-        )?.id
+        openExternalBrowser(url: url)
+        return nil
     }
 
     /// Get a browser panel by ID
@@ -4246,64 +4242,8 @@ class TabManager: ObservableObject {
         preferredProfileID: UUID? = nil,
         insertAtEnd: Bool = false
     ) -> UUID? {
-        guard let workspace = tabsById[tabId] else { return nil }
-        if selectedTabId != tabId {
-            selectedTabId = tabId
-        }
-
-        if preferSplitRight {
-            if let targetPaneId = workspace.topRightBrowserReusePane(),
-               let browserPanel = workspace.newBrowserSurface(
-                   inPane: targetPaneId,
-                   url: url,
-                   focus: true,
-                   insertAtEnd: insertAtEnd,
-                   preferredProfileID: preferredProfileID
-               ) {
-                rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
-                return browserPanel.id
-            }
-
-            let splitSourcePanelId: UUID? = {
-                if let focusedPanelId = workspace.focusedPanelId,
-                   workspace.panels[focusedPanelId] != nil {
-                    return focusedPanelId
-                }
-                if let rememberedPanelId = lastFocusedPanelByTab[tabId],
-                   workspace.panels[rememberedPanelId] != nil {
-                    return rememberedPanelId
-                }
-                if let orderedPanelId = workspace.sidebarOrderedPanelIds().first(where: { workspace.panels[$0] != nil }) {
-                    return orderedPanelId
-                }
-                return workspace.panels.keys.sorted { $0.uuidString < $1.uuidString }.first
-            }()
-
-            if let splitSourcePanelId,
-               let browserPanel = workspace.newBrowserSplit(
-                   from: splitSourcePanelId,
-                   orientation: .horizontal,
-                   url: url,
-                   preferredProfileID: preferredProfileID,
-                   focus: true
-               ) {
-                rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
-                return browserPanel.id
-            }
-        }
-
-        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first,
-              let browserPanel = workspace.newBrowserSurface(
-                  inPane: paneId,
-                  url: url,
-                  focus: true,
-                  insertAtEnd: insertAtEnd,
-                  preferredProfileID: preferredProfileID
-              ) else {
-            return nil
-        }
-        rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
-        return browserPanel.id
+        openExternalBrowser(url: url)
+        return nil
     }
 
     /// Open a browser in the currently focused pane (as a new surface)
@@ -4327,6 +4267,16 @@ class TabManager: ObservableObject {
     /// No-op when no browser panel restore snapshot is available.
     @discardableResult
     func reopenMostRecentlyClosedBrowserPanel() -> Bool {
+        // Phase 1: pop one snapshot and open its URL in the system default
+        // browser. Without this early-return, every browser-creation call
+        // inside the legacy loop would also redirect to Arc, causing all
+        // recently-closed URLs to open at once.
+        if let snapshot = recentlyClosedBrowsers.pop() {
+            openExternalBrowser(url: snapshot.url)
+            return true
+        }
+        return false
+
         while let snapshot = recentlyClosedBrowsers.pop() {
             guard let targetWorkspace =
                 tabsById[snapshot.workspaceId]

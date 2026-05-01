@@ -8,6 +8,19 @@ import Darwin
 import Network
 import CoreText
 
+/// Phase 1 of in-app-browser removal: route every "open browser" call to the
+/// system default browser (Arc, etc.). Used by Workspace.newBrowserSurface,
+/// newBrowserSplit, and createBrowserToRight redirect stubs.
+private func kshrOpenExternalBrowser(url: URL?) {
+    if let url {
+        NSWorkspace.shared.open(url)
+        return
+    }
+    if let blank = URL(string: "about:blank") {
+        NSWorkspace.shared.open(blank)
+    }
+}
+
 #if DEBUG
 private func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> String {
     guard let text else { return "nil" }
@@ -9024,6 +9037,10 @@ final class Workspace: Identifiable, ObservableObject {
         preferredProfileID: UUID? = nil,
         focus: Bool = true
     ) -> BrowserPanel? {
+        // Phase 1 of in-app-browser removal: redirect to system default browser.
+        kshrOpenExternalBrowser(url: url)
+        return nil
+
         // Find the pane containing the source panel
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
         var sourcePaneId: PaneID?
@@ -9111,6 +9128,10 @@ final class Workspace: Identifiable, ObservableObject {
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil
     ) -> BrowserPanel? {
+        // Phase 1 of in-app-browser removal: redirect to system default browser.
+        kshrOpenExternalBrowser(url: url)
+        return nil
+
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let sourcePanelId = effectiveSelectedPanelId(inPane: paneId)
         let previousFocusedPanelId = focusedPanelId
