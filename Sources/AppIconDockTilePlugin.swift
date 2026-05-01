@@ -29,6 +29,11 @@ final class KshrDockTilePlugin: NSObject, NSDockTilePlugIn {
     // Keep the state minimal and derive everything from the enclosing app bundle.
     private let pluginBundle = Bundle(for: KshrDockTilePlugin.self)
     private var iconChangeObserver: NSObjectProtocol?
+    /// Tracks whether the plugin has installed a custom contentView. We only
+    /// clear it via showDefaultAppIcon() when transitioning back to automatic
+    /// mode; clearing unconditionally suppresses the system-rendered badge
+    /// label that the main app sets via NSApp.dockTile.badgeLabel.
+    private var hasCustomContentView = false
 
     deinit {
         if let iconChangeObserver {
@@ -73,11 +78,20 @@ final class KshrDockTilePlugin: NSObject, NSDockTilePlugIn {
         let mode = DockTileAppIconMode(defaultsValue: appDefaults?.string(forKey: kshrAppIconModeKey))
         guard let imageName = mode.imageName,
               let icon = appBundle?.image(forResource: imageName) else {
-            dockTile.showDefaultAppIcon()
+            // In automatic mode, leave the dock tile alone unless we previously
+            // installed a custom contentView. Calling showDefaultAppIcon at
+            // every plugin load (the common case for default-icon users) was
+            // suppressing the unread-notification badge label rendered by the
+            // system from NSApp.dockTile.badgeLabel.
+            if hasCustomContentView {
+                dockTile.showDefaultAppIcon()
+                hasCustomContentView = false
+            }
             return
         }
 
         dockTile.showIcon(icon)
+        hasCustomContentView = true
     }
 
     /// Determine the enclosing app bundle for the dock tile plugin bundle.
