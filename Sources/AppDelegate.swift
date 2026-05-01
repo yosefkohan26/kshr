@@ -2918,13 +2918,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillTerminate(_ notification: Notification) {
         isTerminatingApp = true
-        _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
         stopSessionAutosaveTimer()
-        // Give agent processes (e.g. Claude Code) a chance to save their state
-        // gracefully before the PTY is torn down. Without this, libghostty's
-        // SIGHUP-on-PTY-close kills them abruptly and they lose the resume
-        // context they would otherwise persist on Ctrl+C.
+        // Give agent processes (e.g. Claude Code) a chance to print their
+        // resume hint and exit cleanly BEFORE we save scrollback, so the
+        // "claude --resume <id>" line appears on the next launch.
         gracefullySignalKnownAgentsBeforeTerminate()
+        _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
         TerminalController.shared.stop()
         VSCodeServeWebController.shared.stop()
         BrowserProfileStore.shared.flushPendingSaves()
@@ -2935,10 +2934,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         enableSuddenTerminationIfNeeded()
     }
 
-    /// Send SIGINT to every PID currently tracked as an agent (claude_code etc.)
-    /// across all main-window tab managers, then briefly block the main thread so
-    /// each agent has a moment to flush its on-exit state. Best-effort: any agent
-    /// that doesn't handle SIGINT will still be reaped by libghostty's PTY close.
+    /// Send two SIGINTs (~200ms apart) to every PID tracked as an agent
+    /// (Claude Code, etc.) across all main-window tab managers. Claude Code
+    /// treats one SIGINT as "interrupt current operation" and only exits on
+    /// the second; on exit it prints "Resume this session with: claude --resume <id>".
+    /// Block the main thread briefly afterward so that resume hint lands in
+    /// the PTY before scrollback is saved and the PTY is torn down.
     private func gracefullySignalKnownAgentsBeforeTerminate() {
         var pids: Set<pid_t> = []
         for context in mainWindowContexts.values {
@@ -2949,13 +2950,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         guard !pids.isEmpty else { return }
-        for pid in pids {
-            kill(pid, SIGINT)
-        }
-        // 700ms is enough for Claude Code to write its session-resume snapshot
-        // without making quit feel laggy. macOS gives apps several seconds to
-        // wrap up applicationWillTerminate before force-killing.
-        usleep(700_000)
+        for pid in pids { kill(pid, SIGINT) }
+        usleep(200_000) // first SIGINT lands as "interrupt"
+        for pid in pids { kill(pid, SIGINT) }
+        // 1.2s gives Claude Code time to flush the resume hint and exit cleanly.
+        // macOS allows several seconds in applicationWillTerminate before SIGKILL.
+        usleep(1_200_000)
     }
 
     func applicationWillResignActive(_ notification: Notification) {
