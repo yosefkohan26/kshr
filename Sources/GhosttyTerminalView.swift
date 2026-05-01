@@ -8356,6 +8356,18 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
             }
         })
+        // App-level activation: when the user switches away from kshr and back,
+        // didBecomeKey may not fire (the window was already key from AppKit's
+        // perspective, only NSApp.isActive flipped). Without this, the terminal
+        // is left without a first responder and typing produces NSBeep.
+        windowObservers.append(NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.scheduleAutomaticFirstResponderApply(reason: "appDidBecomeActive")
+        })
         if window.isKeyWindow {
             scheduleAutomaticFirstResponderApply(reason: "viewDidMoveToWindow")
         }
