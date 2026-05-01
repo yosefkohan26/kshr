@@ -2889,17 +2889,23 @@ class GhosttyApp {
                         )
                     }
                     #endif
+                    // Phase 1 redirect: workspace.newBrowserSurface/Split now route to
+                    // NSWorkspace.shared.open(url) and always return nil. The previous
+                    // `!= nil` check would report false to Ghostty, which then opened
+                    // the URL itself, causing two browser windows. The redirect already
+                    // handled the URL, so return true unconditionally on this path.
                     if let targetPane = workspace.preferredBrowserTargetPane(fromPanelId: sourcePanelId) {
                         #if DEBUG
-                        dlog("link.openURL opening in existing browser pane=\(targetPane)")
+                        dlog("link.openURL redirecting to default browser via pane=\(targetPane)")
                         #endif
-                        return workspace.newBrowserSurface(inPane: targetPane, url: url, focus: true) != nil
+                        _ = workspace.newBrowserSurface(inPane: targetPane, url: url, focus: true)
                     } else {
                         #if DEBUG
-                        dlog("link.openURL opening as new browser split from surface=\(sourcePanelId)")
+                        dlog("link.openURL redirecting to default browser via split from surface=\(sourcePanelId)")
                         #endif
-                        return workspace.newBrowserSplit(from: sourcePanelId, orientation: .horizontal, url: url) != nil
+                        _ = workspace.newBrowserSplit(from: sourcePanelId, orientation: .horizontal, url: url)
                     }
+                    return true
                 }
             }
         default:
