@@ -804,13 +804,8 @@ struct EmptyPanelView: View {
                     shortcut: newSurfaceShortcut,
                     action: createTerminal
                 )
-
-                emptyPaneActionButton(
-                    title: "Browser",
-                    systemImage: "globe",
-                    shortcut: openBrowserShortcut,
-                    action: createBrowser
-                )
+                // Browser button hidden in Phase 2 of in-app-browser removal.
+                // Use the system default browser (Arc, etc.) for web.
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
