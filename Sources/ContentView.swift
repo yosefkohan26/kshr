@@ -12585,7 +12585,10 @@ private struct TabItemView: View, Equatable {
                     SidebarMetadataRows(
                         entries: metadataEntries,
                         isActive: usesInvertedActiveForeground,
-                        onFocus: { updateSelection() }
+                        onFocus: { updateSelection() },
+                        onDismissEntry: { [weak tab] key in
+                            tab?.dismissSidebarStatusEntry(forKey: key)
+                        }
                     )
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
@@ -13963,6 +13966,7 @@ private struct SidebarMetadataRows: View {
     let entries: [SidebarStatusEntry]
     let isActive: Bool
     let onFocus: () -> Void
+    let onDismissEntry: ((String) -> Void)?
 
     @State private var isExpanded: Bool = false
     private let collapsedEntryLimit = 3
@@ -13970,7 +13974,12 @@ private struct SidebarMetadataRows: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(visibleEntries, id: \.key) { entry in
-                SidebarMetadataEntryRow(entry: entry, isActive: isActive, onFocus: onFocus)
+                SidebarMetadataEntryRow(
+                    entry: entry,
+                    isActive: isActive,
+                    onFocus: onFocus,
+                    onDismiss: onDismissEntry.map { dismiss in { dismiss(entry.key) } }
+                )
             }
 
             if shouldShowToggle {
@@ -14015,23 +14024,41 @@ private struct SidebarMetadataEntryRow: View {
     let entry: SidebarStatusEntry
     let isActive: Bool
     let onFocus: () -> Void
+    let onDismiss: (() -> Void)?
+
+    @State private var isHovering: Bool = false
 
     var body: some View {
-        Group {
-            if let url = entry.url {
-                Button {
-                    onFocus()
-                    NSWorkspace.shared.open(url)
-                } label: {
-                    rowContent(underlined: true)
+        ZStack(alignment: .trailing) {
+            Group {
+                if let url = entry.url {
+                    Button {
+                        onFocus()
+                        NSWorkspace.shared.open(url)
+                    } label: {
+                        rowContent(underlined: true)
+                    }
+                    .buttonStyle(.plain)
+                    .safeHelp(url.absoluteString)
+                } else {
+                    rowContent(underlined: false)
+                        .contentShape(Rectangle())
+                        .onTapGesture { onFocus() }
+                }
+            }
+            if isHovering, let onDismiss {
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(foregroundColor.opacity(0.7))
                 }
                 .buttonStyle(.plain)
-                .safeHelp(url.absoluteString)
-            } else {
-                rowContent(underlined: false)
-                    .contentShape(Rectangle())
-                    .onTapGesture { onFocus() }
+                .safeHelp(String(localized: "sidebar.metadata.dismiss", defaultValue: "Dismiss"))
+                .padding(.trailing, 2)
             }
+        }
+        .onHover { hovering in
+            isHovering = hovering
         }
     }
 

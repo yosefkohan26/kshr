@@ -7721,6 +7721,15 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    /// Manual dismiss for a sidebar status entry. Used by the X button on
+    /// the row when the user wants to clear an agent's "Needs input" indicator
+    /// without waiting for the agent to update it. Removing the agent PID
+    /// keeps the sidebar visual state in sync if the entry was tracking one.
+    func dismissSidebarStatusEntry(forKey key: String) {
+        statusEntries.removeValue(forKey: key)
+        agentPIDs.removeValue(forKey: key)
+    }
+
     func resetSidebarContext(reason: String = "unspecified") {
         statusEntries.removeAll()
         agentPIDs.removeAll()
