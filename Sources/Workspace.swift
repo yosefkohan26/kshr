@@ -16,8 +16,17 @@ private func kshrOpenExternalBrowser(url: URL?) {
         NSWorkspace.shared.open(url)
         return
     }
-    if let blank = URL(string: "about:blank") {
-        NSWorkspace.shared.open(blank)
+    // No URL: launch the user's default browser app without opening a URL.
+    // We probe a real https URL to find the default-browser bundle (about:blank
+    // is not registered to any app), then activate the app itself.
+    let probe = URL(string: "https://www.google.com")!
+    if let appURL = NSWorkspace.shared.urlForApplication(toOpen: probe) {
+        let cfg = NSWorkspace.OpenConfiguration()
+        cfg.activates = true
+        NSWorkspace.shared.openApplication(at: appURL, configuration: cfg, completionHandler: nil)
+    } else {
+        // Last resort: open the probe URL itself.
+        NSWorkspace.shared.open(probe)
     }
 }
 

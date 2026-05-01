@@ -3901,10 +3901,16 @@ class TabManager: ObservableObject {
             NSWorkspace.shared.open(url)
             return
         }
-        // No URL: just bring the default browser forward. Open about:blank as
-        // a portable way to launch the registered default-browser app.
-        if let blank = URL(string: "about:blank") {
-            NSWorkspace.shared.open(blank)
+        // No URL: launch the default-browser app without opening a URL. about:blank
+        // is not registered to any app, which gives macOS's "no application set
+        // to open the URL" dialog.
+        let probe = URL(string: "https://www.google.com")!
+        if let appURL = NSWorkspace.shared.urlForApplication(toOpen: probe) {
+            let cfg = NSWorkspace.OpenConfiguration()
+            cfg.activates = true
+            NSWorkspace.shared.openApplication(at: appURL, configuration: cfg, completionHandler: nil)
+        } else {
+            NSWorkspace.shared.open(probe)
         }
     }
 
