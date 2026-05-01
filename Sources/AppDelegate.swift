@@ -2920,6 +2920,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isTerminatingApp = true
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
         stopSessionAutosaveTimer()
+        // Give agent processes (e.g. Claude Code) a chance to save their state
+        // gracefully before the PTY is torn down. Without this, libghostty's
+        // SIGHUP-on-PTY-close kills them abruptly and they lose the resume
+        // context they would otherwise persist on Ctrl+C.
+        gracefullySignalKnownAgentsBeforeTerminate()
         TerminalController.shared.stop()
         VSCodeServeWebController.shared.stop()
         BrowserProfileStore.shared.flushPendingSaves()
@@ -2928,6 +2933,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         notificationStore?.clearAll()
         enableSuddenTerminationIfNeeded()
+    }
+
+    /// Send SIGINT to every PID currently tracked as an agent (claude_code etc.)
+    /// across all main-window tab managers, then briefly block the main thread so
+    /// each agent has a moment to flush its on-exit state. Best-effort: any agent
+    /// that doesn't handle SIGINT will still be reaped by libghostty's PTY close.
+    private func gracefullySignalKnownAgentsBeforeTerminate() {
+        var pids: Set<pid_t> = []
+        for context in mainWindowContexts.values {
+            for workspace in context.tabManager.tabs {
+                for pid in workspace.agentPIDs.values where pid > 0 {
+                    pids.insert(pid)
+                }
+            }
+        }
+        guard !pids.isEmpty else { return }
+        for pid in pids {
+            kill(pid, SIGINT)
+        }
+        // 700ms is enough for Claude Code to write its session-resume snapshot
+        // without making quit feel laggy. macOS gives apps several seconds to
+        // wrap up applicationWillTerminate before force-killing.
+        usleep(700_000)
     }
 
     func applicationWillResignActive(_ notification: Notification) {
