@@ -1076,6 +1076,11 @@ final class TerminalNotificationStore: ObservableObject {
         let isFocusedPanel = isActiveTab && isFocusedSurface
         let isAppFocused = AppFocusState.isAppFocused()
         let shouldSuppressExternalDelivery = isAppFocused && isFocusedPanel
+        NSLog(
+            "[kshr.notif] addNotification tab=\(tabId.uuidString.prefix(8)) " +
+            "title=\(title.prefix(40)) activeTab=\(isActiveTab) focusedPanel=\(isFocusedPanel) " +
+            "appFocused=\(isAppFocused) suppress=\(shouldSuppressExternalDelivery)"
+        )
         if shouldSuppressExternalDelivery {
             setFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
         }
@@ -1580,10 +1585,16 @@ final class TerminalNotificationStore: ObservableObject {
 #endif
 
     private func refreshDockBadge() {
+        let count = unreadCount
+        let isEnabled = NotificationBadgeSettings.isDockBadgeEnabled()
         let label = Self.dockBadgeLabel(
-            unreadCount: unreadCount,
-            isEnabled: NotificationBadgeSettings.isDockBadgeEnabled(),
+            unreadCount: count,
+            isEnabled: isEnabled,
             runTag: TaggedRunBadgeSettings.normalizedTag()
+        )
+        NSLog(
+            "[kshr.notif] refreshDockBadge unread=\(count) enabled=\(isEnabled) " +
+            "label=\(label ?? "nil") notificationsCount=\(notifications.count)"
         )
         NSApp?.dockTile.badgeLabel = label
     }
