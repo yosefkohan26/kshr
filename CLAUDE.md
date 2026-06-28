@@ -198,7 +198,7 @@ The app has a **Debug** menu in the macOS menu bar (only in DEBUG builds). Use i
 
 ## Ghostty submodule workflow
 
-Ghostty changes must be committed in the `ghostty` submodule and pushed to the `yosefkohan26/ghostty` fork.
+Ghostty changes must be committed in the `ghostty` submodule and pushed to the `davidacimovic/ghostty` fork.
 Keep `docs/ghostty-fork.md` up to date with any fork changes and conflict notes.
 
 ```bash

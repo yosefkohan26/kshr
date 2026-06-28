@@ -1,6 +1,6 @@
 [submodule "ghostty"]
 	path = ghostty
-	url = https://github.com/yosefkohan26/ghostty.git
+	url = https://github.com/davidacimovic/ghostty.git
 	branch = main
 [submodule "homebrew-kshr"]
 	path = homebrew-kshr
