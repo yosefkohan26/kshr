@@ -2889,17 +2889,23 @@ class GhosttyApp {
                         )
                     }
                     #endif
+                    // Phase 1 redirect: workspace.newBrowserSurface/Split now route to
+                    // NSWorkspace.shared.open(url) and always return nil. The previous
+                    // `!= nil` check would report false to Ghostty, which then opened
+                    // the URL itself, causing two browser windows. The redirect already
+                    // handled the URL, so return true unconditionally on this path.
                     if let targetPane = workspace.preferredBrowserTargetPane(fromPanelId: sourcePanelId) {
                         #if DEBUG
-                        dlog("link.openURL opening in existing browser pane=\(targetPane)")
+                        dlog("link.openURL redirecting to default browser via pane=\(targetPane)")
                         #endif
-                        return workspace.newBrowserSurface(inPane: targetPane, url: url, focus: true) != nil
+                        _ = workspace.newBrowserSurface(inPane: targetPane, url: url, focus: true)
                     } else {
                         #if DEBUG
-                        dlog("link.openURL opening as new browser split from surface=\(sourcePanelId)")
+                        dlog("link.openURL redirecting to default browser via split from surface=\(sourcePanelId)")
                         #endif
-                        return workspace.newBrowserSplit(from: sourcePanelId, orientation: .horizontal, url: url) != nil
+                        _ = workspace.newBrowserSplit(from: sourcePanelId, orientation: .horizontal, url: url)
                     }
+                    return true
                 }
             }
         default:
@@ -5050,7 +5056,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // when we don't have usable bounds (e.g. detached/off-window transitions).
         superview?.layoutSubtreeIfNeeded()
         layoutSubtreeIfNeeded()
-        updateSurfaceSize()
+        let sizeDidChange = updateSurfaceSize()
+        if sizeDidChange, let s = terminalSurface?.surface {
+            ghostty_surface_refresh(s)
+        }
         applySurfaceBackground()
         applySurfaceColorScheme(force: true)
         GhosttyApp.shared.synchronizeThemeWithAppearance(
@@ -5089,7 +5098,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             layer?.contentsScale = window.backingScaleFactor
             CATransaction.commit()
         }
-        updateSurfaceSize()
+        let sizeDidChange = updateSurfaceSize()
+        // Notifications/display reconfiguration can fire backing changes on
+        // unfocused surfaces, and Ghostty only auto-restarts its vsync link on
+        // display-id changes while focused. Without an explicit refresh the
+        // renderer can sit on a blank/stale frame.
+        if sizeDidChange, let s = terminalSurface?.surface {
+            ghostty_surface_refresh(s)
+        }
         invalidateTextInputCoordinates()
     }
 
@@ -7034,7 +7050,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func mouseDragged(with event: NSEvent) {
         guard let surface = surface else { return }
-        let point = convert(event.locationInWindow, from: nil)
+        var point = convert(event.locationInWindow, from: nil)
+        // Clamp to view bounds. AppKit keeps delivering mouseDragged while the
+        // button is held, even when the cursor leaves the view; libghostty maps
+        // out-of-range y to scrollback start/end, which selects everything above
+        // or below the intended range.
+        point.x = max(0, min(point.x, bounds.width))
+        point.y = max(0, min(point.y, bounds.height))
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
     }
 
@@ -7143,6 +7165,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
            displayID != 0 {
             ghostty_surface_set_display_id(surface, displayID)
         }
+
+        // Ghostty only auto-restarts its vsync link on display-id changes while
+        // the surface is focused. Screen reconfiguration triggered by system UI
+        // (e.g. notification banners on macOS Tahoe) can fire on unfocused
+        // surfaces and leave the renderer stuck until a later focus change.
+        ghostty_surface_refresh(surface)
 
         DispatchQueue.main.async { [weak self] in
             self?.viewDidChangeBackingProperties()
@@ -8333,6 +8361,18 @@ final class GhosttySurfaceScrollView: NSView {
                 dlog("find.window.didResignKey surface=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") searchActive=\(searchActive) firstResponder=\(String(describing: window.firstResponder)) (not terminal, skipping)")
 #endif
             }
+        })
+        // App-level activation: when the user switches away from kshr and back,
+        // didBecomeKey may not fire (the window was already key from AppKit's
+        // perspective, only NSApp.isActive flipped). Without this, the terminal
+        // is left without a first responder and typing produces NSBeep.
+        windowObservers.append(NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.scheduleAutomaticFirstResponderApply(reason: "appDidBecomeActive")
         })
         if window.isKeyWindow {
             scheduleAutomaticFirstResponderApply(reason: "viewDidMoveToWindow")

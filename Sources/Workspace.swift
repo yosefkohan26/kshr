@@ -8,6 +8,28 @@ import Darwin
 import Network
 import CoreText
 
+/// Phase 1 of in-app-browser removal: route every "open browser" call to the
+/// system default browser (Arc, etc.). Used by Workspace.newBrowserSurface,
+/// newBrowserSplit, and createBrowserToRight redirect stubs.
+private func kshrOpenExternalBrowser(url: URL?) {
+    if let url {
+        NSWorkspace.shared.open(url)
+        return
+    }
+    // No URL: launch the user's default browser app without opening a URL.
+    // We probe a real https URL to find the default-browser bundle (about:blank
+    // is not registered to any app), then activate the app itself.
+    let probe = URL(string: "https://www.google.com")!
+    if let appURL = NSWorkspace.shared.urlForApplication(toOpen: probe) {
+        let cfg = NSWorkspace.OpenConfiguration()
+        cfg.activates = true
+        NSWorkspace.shared.openApplication(at: appURL, configuration: cfg, completionHandler: nil)
+    } else {
+        // Last resort: open the probe URL itself.
+        NSWorkspace.shared.open(probe)
+    }
+}
+
 #if DEBUG
 private func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> String {
     guard let text else { return "nil" }
@@ -7699,6 +7721,15 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    /// Manual dismiss for a sidebar status entry. Used by the X button on
+    /// the row when the user wants to clear an agent's "Needs input" indicator
+    /// without waiting for the agent to update it. Removing the agent PID
+    /// keeps the sidebar visual state in sync if the entry was tracking one.
+    func dismissSidebarStatusEntry(forKey key: String) {
+        statusEntries.removeValue(forKey: key)
+        agentPIDs.removeValue(forKey: key)
+    }
+
     func resetSidebarContext(reason: String = "unspecified") {
         statusEntries.removeAll()
         agentPIDs.removeAll()
@@ -9024,78 +9055,8 @@ final class Workspace: Identifiable, ObservableObject {
         preferredProfileID: UUID? = nil,
         focus: Bool = true
     ) -> BrowserPanel? {
-        // Find the pane containing the source panel
-        guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
-        var sourcePaneId: PaneID?
-        for paneId in bonsplitController.allPaneIds {
-            let tabs = bonsplitController.tabs(inPane: paneId)
-            if tabs.contains(where: { $0.id == sourceTabId }) {
-                sourcePaneId = paneId
-                break
-            }
-        }
-
-        guard let paneId = sourcePaneId else { return nil }
-
-        // Create browser panel
-        let browserPanel = BrowserPanel(
-            workspaceId: id,
-            profileID: resolvedNewBrowserProfileID(
-                preferredProfileID: preferredProfileID,
-                sourcePanelId: panelId
-            ),
-            initialURL: url,
-            proxyEndpoint: telemetry.remoteProxyEndpoint,
-            isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
-        )
-        panels[browserPanel.id] = browserPanel
-        panelTitles[browserPanel.id] = browserPanel.displayTitle
-
-        // Pre-generate the bonsplit tab ID so the mapping exists before the split lands.
-        let newTab = Bonsplit.Tab(
-            title: browserPanel.displayTitle,
-            icon: browserPanel.displayIcon,
-            kind: SurfaceKind.browser,
-            isDirty: browserPanel.isDirty,
-            isLoading: browserPanel.isLoading,
-            isPinned: false
-        )
-        surfaceIdToPanelId[newTab.id] = browserPanel.id
-        let previousFocusedPanelId = focusedPanelId
-
-        // Create the split with the browser tab already present.
-        // Mark this split as programmatic so didSplitPane doesn't auto-create a terminal.
-        isProgrammaticSplit = true
-        defer { isProgrammaticSplit = false }
-        guard bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) != nil else {
-            surfaceIdToPanelId.removeValue(forKey: newTab.id)
-            panels.removeValue(forKey: browserPanel.id)
-            panelTitles.removeValue(forKey: browserPanel.id)
-            return nil
-        }
-        setPreferredBrowserProfileID(browserPanel.profileID)
-
-        // See newTerminalSplit: suppress old view's becomeFirstResponder during reparenting.
-        let previousHostedView = focusedTerminalPanel?.hostedView
-        if focus {
-            previousHostedView?.suppressReparentFocus()
-            focusPanel(browserPanel.id)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                previousHostedView?.clearSuppressReparentFocus()
-            }
-        } else {
-            preserveFocusAfterNonFocusSplit(
-                preferredPanelId: previousFocusedPanelId,
-                splitPanelId: browserPanel.id,
-                previousHostedView: previousHostedView
-            )
-        }
-
-        installBrowserPanelSubscription(browserPanel)
-        browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
-
-        return browserPanel
+        kshrOpenExternalBrowser(url: url)
+        return nil
     }
 
     /// Create a new browser surface in the specified pane.
@@ -9111,67 +9072,8 @@ final class Workspace: Identifiable, ObservableObject {
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil
     ) -> BrowserPanel? {
-        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
-        let sourcePanelId = effectiveSelectedPanelId(inPane: paneId)
-        let previousFocusedPanelId = focusedPanelId
-        let previousHostedView = focusedTerminalPanel?.hostedView
-
-        let browserPanel = BrowserPanel(
-            workspaceId: id,
-            profileID: resolvedNewBrowserProfileID(
-                preferredProfileID: preferredProfileID,
-                sourcePanelId: sourcePanelId
-            ),
-            initialURL: url,
-            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
-            proxyEndpoint: telemetry.remoteProxyEndpoint,
-            isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
-        )
-        panels[browserPanel.id] = browserPanel
-        panelTitles[browserPanel.id] = browserPanel.displayTitle
-
-        guard let newTabId = bonsplitController.createTab(
-            title: browserPanel.displayTitle,
-            icon: browserPanel.displayIcon,
-            kind: SurfaceKind.browser,
-            isDirty: browserPanel.isDirty,
-            isLoading: browserPanel.isLoading,
-            isPinned: false,
-            inPane: paneId
-        ) else {
-            panels.removeValue(forKey: browserPanel.id)
-            panelTitles.removeValue(forKey: browserPanel.id)
-            return nil
-        }
-
-        surfaceIdToPanelId[newTabId] = browserPanel.id
-        setPreferredBrowserProfileID(browserPanel.profileID)
-
-        // Keyboard/browser-open paths want "new tab at end" regardless of global new-tab placement.
-        if insertAtEnd {
-            let targetIndex = max(0, bonsplitController.tabs(inPane: paneId).count - 1)
-            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
-        }
-
-        // Match terminal behavior: enforce deterministic selection + focus.
-        if shouldFocusNewTab {
-            bonsplitController.focusPane(paneId)
-            bonsplitController.selectTab(newTabId)
-            browserPanel.focus()
-            applyTabSelection(tabId: newTabId, inPane: paneId)
-        } else {
-            preserveFocusAfterNonFocusSplit(
-                preferredPanelId: previousFocusedPanelId,
-                splitPanelId: browserPanel.id,
-                previousHostedView: previousHostedView
-            )
-        }
-
-        installBrowserPanelSubscription(browserPanel)
-        browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
-
-        return browserPanel
+        kshrOpenExternalBrowser(url: url)
+        return nil
     }
 
     func newMarkdownSplit(

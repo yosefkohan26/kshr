@@ -1,4 +1,4 @@
-# Ghostty Fork Changes (yosefkohan26/ghostty)
+# Ghostty Fork Changes (davidacimovic/ghostty)
 
 This repo uses a fork of Ghostty for local patches that aren't upstream yet.
 When we change the fork, update this document and the parent submodule SHA.
@@ -6,14 +6,21 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Fork update checklist
 
 1) Make changes in `ghostty/`.
-2) Commit and push to `yosefkohan26/ghostty`.
+2) Commit and push to `davidacimovic/ghostty`.
 3) Update this file with the new change summary + conflict notes.
 4) In the parent repo: `git add ghostty` and commit the submodule SHA.
 
 ## Current fork changes
 
-Fork rebased onto upstream `main` at `3509ccf78` (`v1.3.1-457-g3509ccf78`) on March 30, 2026.
-Current kshr fork head: `0b231db94` (`v1.3.1-472-g0b231db94`).
+Fork rebased onto upstream `main` at `94cd3da8b` on June 28, 2026 (previous base: `3509ccf78` / v1.3.1-457).
+Current kshr fork head: `6ede4d8189aae799cc5cadb325841520534f2b2e` (hosted at `davidacimovic/ghostty`).
+
+> **Note (2026-06-28 reconstruction):** the original fork repo and its per-patch commit
+> history were lost. This head is a single squashed commit that re-applies the complete
+> fork patch set (sections 1–7 below, plus undocumented font-shaping / `Screen.zig` /
+> `Terminal.zig` / `fastmem.zig` / `Thread.zig` changes) on top of upstream `94cd3da8b`.
+> Patches were recovered from the vendored fork source and replayed via a 3-way rebase;
+> when next syncing upstream, re-split into the per-section commits below if desired.
 
 ### 1) macOS display link restart on display changes
 

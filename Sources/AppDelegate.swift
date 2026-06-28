@@ -2918,8 +2918,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillTerminate(_ notification: Notification) {
         isTerminatingApp = true
+        // Save FIRST while workspaces are still alive. Window-close handlers
+        // run between applicationShouldTerminate and this callback and can
+        // empty out panels; saving after a multi-second SIGINT/poll wait was
+        // capturing empty state and wiping the persisted snapshot.
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
         stopSessionAutosaveTimer()
+        // Best-effort: signal known agents (Claude Code, etc.) so they exit
+        // cleanly on the next PTY teardown. We can no longer capture their
+        // resume-hint output in scrollback (that ship sailed when we saved
+        // above), but at least their internal state is flushed properly.
+        gracefullySignalKnownAgentsBeforeTerminate()
         TerminalController.shared.stop()
         VSCodeServeWebController.shared.stop()
         BrowserProfileStore.shared.flushPendingSaves()
@@ -2928,6 +2937,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         notificationStore?.clearAll()
         enableSuddenTerminationIfNeeded()
+    }
+
+    /// Send two SIGINTs (~200ms apart) to every PID tracked as an agent
+    /// (Claude Code, etc.) across all main-window tab managers, then poll
+    /// for the agent to exit before returning. Claude Code treats one SIGINT
+    /// as "interrupt current operation" and only exits on the second; on exit
+    /// it prints "Resume this session with: claude --resume <id>".
+    private func gracefullySignalKnownAgentsBeforeTerminate() {
+        var pidsByKey: [(pid_t, String)] = []
+        var allPids: Set<pid_t> = []
+        for context in mainWindowContexts.values {
+            for workspace in context.tabManager.tabs {
+                for (key, pid) in workspace.agentPIDs where pid > 0 {
+                    pidsByKey.append((pid, key))
+                    allPids.insert(pid)
+                }
+            }
+        }
+        Self.appendQuitDebug("agents-found count=\(allPids.count) entries=\(pidsByKey.map { "\($0.0):\($0.1)" }.joined(separator: ","))")
+        guard !allPids.isEmpty else { return }
+
+        for pid in allPids { kill(pid, SIGINT) }
+        Self.appendQuitDebug("sigint-1 sent")
+        usleep(250_000)
+        for pid in allPids { kill(pid, SIGINT) }
+        Self.appendQuitDebug("sigint-2 sent")
+
+        // Poll up to 3s for the agents to actually exit. waitpid won't work
+        // (we're not the parent), so probe with kill(pid, 0).
+        let deadline = Date().addingTimeInterval(3.0)
+        while Date() < deadline {
+            let alive = allPids.filter { kill($0, 0) == 0 }
+            if alive.isEmpty {
+                Self.appendQuitDebug("all-agents-exited")
+                // Brief grace period so libghostty/Metal flush the final PTY output.
+                usleep(400_000)
+                return
+            }
+            usleep(100_000)
+        }
+        let stillAlive = allPids.filter { kill($0, 0) == 0 }
+        Self.appendQuitDebug("timeout still-alive=\(stillAlive.count)")
+        usleep(400_000)
+    }
+
+    private static func appendQuitDebug(_ msg: String) {
+        let line = "\(Date().timeIntervalSince1970) [kshr.quit] \(msg)\n"
+        if let data = line.data(using: .utf8),
+           let handle = try? FileHandle(forWritingTo: URL(fileURLWithPath: "/tmp/kshr-quit-debug.log")) {
+            handle.seekToEndOfFile()
+            try? handle.write(contentsOf: data)
+            try? handle.close()
+        } else if let data = line.data(using: .utf8) {
+            try? data.write(to: URL(fileURLWithPath: "/tmp/kshr-quit-debug.log"))
+        }
     }
 
     func applicationWillResignActive(_ notification: Notification) {
@@ -3109,9 +3173,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func prepareStartupSessionSnapshotIfNeeded() {
         guard !didPrepareStartupSessionSnapshot else { return }
         didPrepareStartupSessionSnapshot = true
-        guard SessionRestorePolicy.shouldAttemptRestore() else { return }
+        let policyAllows = SessionRestorePolicy.shouldAttemptRestore()
+        let argsTail = CommandLine.arguments.dropFirst().joined(separator: " ")
+        NSLog("[kshr.session] prepareStartupSnapshot policyAllows=\(policyAllows) args=[\(argsTail)]")
+        guard policyAllows else { return }
         Self.removeLegacyPersistedWindowGeometry()
-        startupSessionSnapshot = SessionPersistenceStore.load()
+        let loaded = SessionPersistenceStore.load()
+        startupSessionSnapshot = loaded
+        let workspaceCount = loaded?.windows.first?.tabManager.workspaces.count ?? 0
+        NSLog(
+            "[kshr.session] loadedSnapshot=\(loaded != nil ? 1 : 0) " +
+            "windows=\(loaded?.windows.count ?? 0) firstWindowWorkspaces=\(workspaceCount) " +
+            "filePath=\(SessionPersistenceStore.defaultSnapshotFileURL()?.path ?? "nil")"
+        )
     }
 
     private func persistedWindowGeometry(
@@ -3197,10 +3271,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func attemptStartupSessionRestoreIfNeeded(primaryWindow: NSWindow) {
-        guard !didAttemptStartupSessionRestore else { return }
+        if didAttemptStartupSessionRestore {
+            NSLog("[kshr.session] attemptRestore.skip reason=alreadyAttempted")
+            return
+        }
         didAttemptStartupSessionRestore = true
-        guard !didHandleExplicitOpenIntentAtStartup else { return }
-        guard let primaryContext = contextForMainTerminalWindow(primaryWindow) else { return }
+        if didHandleExplicitOpenIntentAtStartup {
+            NSLog("[kshr.session] attemptRestore.skip reason=explicitOpenIntent")
+            return
+        }
+        guard let primaryContext = contextForMainTerminalWindow(primaryWindow) else {
+            NSLog("[kshr.session] attemptRestore.skip reason=noWindowContext")
+            return
+        }
+        let snapshotWorkspaces = startupSessionSnapshot?.windows.first?.tabManager.workspaces.count ?? 0
+        NSLog(
+            "[kshr.session] attemptRestore.proceed snapshotPresent=\(startupSessionSnapshot != nil ? 1 : 0) " +
+            "snapshotWindows=\(startupSessionSnapshot?.windows.count ?? 0) " +
+            "primaryWindowWorkspaces=\(snapshotWorkspaces)"
+        )
 
         let startupSnapshot = startupSessionSnapshot
         let primaryWindowSnapshot = startupSnapshot?.windows.first
@@ -5969,6 +6058,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func prepareForExplicitOpenIntentAtStartup() {
+        NSLog("[kshr.session] explicitOpenIntent.set didAttemptRestore=\(didAttemptStartupSessionRestore ? 1 : 0)")
         didHandleExplicitOpenIntentAtStartup = true
         if !didAttemptStartupSessionRestore {
             startupSessionSnapshot = nil

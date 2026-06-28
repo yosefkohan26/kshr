@@ -1242,8 +1242,13 @@ final class WindowTerminalPortal: NSObject {
             hostedView.isHidden = true
         }
         // Keep inner scroll/surface geometry in sync with the seeded outer frame
-        // before the hosted view enters a window.
-        hostedView.reconcileGeometryNow()
+        // before the hosted view enters a window. Skip when frame is zero to avoid
+        // overwriting the inner GhosttyNSView's 800x600 safety frame — zero-size
+        // propagation causes createSurface to skip ghostty_surface_set_size, leaving
+        // the renderer stuck until a later refresh.
+        if hostedView.frame.width > 0, hostedView.frame.height > 0 {
+            hostedView.reconcileGeometryNow()
+        }
 
         let needsVisibleAttachKick = hostedView.superview !== hostView && visibleInUI
         if hostedView.superview !== hostView {
